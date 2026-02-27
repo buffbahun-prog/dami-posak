@@ -17,7 +17,20 @@ if (!("BarcodeDetector" in globalThis)) {
   });
 }
 
-const video = document.getElementById('video') as HTMLVideoElement | null;
+const video = document.getElementById('video') as HTMLVideoElement;
+const canvas = document.getElementById('overlay') as HTMLCanvasElement;
+const ctx = canvas.getContext('2d')!;
+// canvas.width = video.videoWidth;
+// canvas.height = video.videoHeight;
+
+function draw(barcode: DetectedBarcode) {
+  // Clear previous frame
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const { x, y, width, height } = barcode.boundingBox;
+  ctx.strokeStyle = 'red';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(x, y, width, height);
+}
 
 function startStream() {
   navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }) // Use the rear camera
@@ -36,32 +49,35 @@ function startStream() {
 let decoding = false;
 
 function onVideoLoaded(stream: MediaStream) {
-  startDecoding(stream);
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  requestAnimationFrame(() => startDecoding(stream));
 }
 
-function startDecoding(stream: MediaStream) {
-    // Scan every 100 milliseconds (adjust as needed)
-    const intervalId = setInterval(async () => {
+let animationId: number | null = null;
+
+async function startDecoding(stream: MediaStream) {
         if (decoding) return;
         decoding = true;
-        console.log("here");
+        // console.log("here");
         try {
             if (!barcodeDetector || !video) return;
             const barcodes = await barcodeDetector.detect(video); // Pass the video element directly
+            // console.log("inside");
             barcodes.forEach(barcode => {
-                console.log('Barcode detected:', barcode.rawValue);
-                stream.getTracks().forEach(trk => trk.stop());
-                // Process the result here
+                // console.log('Barcode detected:', barcode.rawValue, barcode);
+                draw(barcode);
             });
-            if (stream.getTracks().every(trk => trk.readyState === "ended")) {
-              clearInterval(intervalId);
+            if (stream.getTracks().every(trk => trk.readyState === "ended") && animationId) {
+              cancelAnimationFrame(animationId);
             }
+            animationId = requestAnimationFrame(() => startDecoding(stream));
+            console.log(animationId);
         } catch (e) {
             console.error('Barcode detection failed:', e);
         } finally {
             decoding = false;
         }
-    }, 100);
 }
 
 const stopBtn = document.getElementById("btn");
@@ -70,8 +86,9 @@ stopBtn?.addEventListener("click", () => {
   if (!isStarted) return;
   const srcObj = video?.srcObject as MediaStream | null | undefined;
   srcObj?.getTracks()?.forEach(trk => trk.stop());
-  console.log(srcObj?.getTracks());
   isStarted = false;
+  if (animationId) cancelAnimationFrame(animationId);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
 })
 
 const startBtn = document.getElementById("stbtn");
