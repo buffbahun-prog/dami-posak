@@ -72,7 +72,6 @@ async function startDecoding(stream: MediaStream) {
               cancelAnimationFrame(animationId);
             }
             animationId = requestAnimationFrame(() => startDecoding(stream));
-            console.log(animationId);
         } catch (e) {
             console.error('Barcode detection failed:', e);
         } finally {
