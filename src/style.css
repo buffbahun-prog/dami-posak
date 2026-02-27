@@ -12,3 +12,18 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+video {
+  width: 100%;
+}
+
+.btn-cont {
+  display: flex;
+  justify-content: space-between;
+}
+
+button {
+  padding: 10px 20px;
+  margin-bottom: 20px;
+  display: block;
+}

@@ -2,6 +2,8 @@ import './style.css'
 
 // const appRoot = document.querySelector<HTMLDivElement>('#app');
 
+let isStarted = false;
+
 let barcodeDetector: BarcodeDetector | null = null;
 
 if (!("BarcodeDetector" in globalThis)) {
@@ -16,7 +18,9 @@ if (!("BarcodeDetector" in globalThis)) {
 }
 
 const video = document.getElementById('video') as HTMLVideoElement | null;
-navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }) // Use the rear camera
+
+function startStream() {
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }) // Use the rear camera
     .then(stream => {
         if (video) {
         video.srcObject = stream;
@@ -27,6 +31,7 @@ navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }) //
     .catch(err => {
         console.error('Error accessing camera:', err);
 });
+}
 
 let decoding = false;
 
@@ -62,7 +67,17 @@ function startDecoding(stream: MediaStream) {
 const stopBtn = document.getElementById("btn");
 
 stopBtn?.addEventListener("click", () => {
+  if (!isStarted) return;
   const srcObj = video?.srcObject as MediaStream | null | undefined;
   srcObj?.getTracks()?.forEach(trk => trk.stop());
-  console.log(srcObj?.getTracks())
+  console.log(srcObj?.getTracks());
+  isStarted = false;
+})
+
+const startBtn = document.getElementById("stbtn");
+
+startBtn?.addEventListener("click", () => {
+  if (isStarted) return;
+  startStream();
+  isStarted = true;
 })
