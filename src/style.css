@@ -28,8 +28,13 @@
   height: 70vh;
 }
 
+#video {
+  /* opacity: 0; */
+}
+
 #overlay {
   pointer-events: none; /* don’t block clicks */
+  z-index: 10;
 }
 
 .btn-cont {
