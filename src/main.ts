@@ -6,83 +6,53 @@ import * as THREE from 'three'
 ===================================== */
 
 let lastDetectedTime = 0
-const detectionGracePeriod = 300 // milliseconds
-
+const detectionGracePeriod = 500 // ms
 let isStarted = false
 let animationId: number | null = null
 let detectInterval: number | null = null
-
 let barcodeDetector: BarcodeDetector | null = null
 
-if ("BarcodeDetector" in globalThis) {
-  barcodeDetector = new BarcodeDetector({
-    formats: ["qr_code"],
-  })
+if ('BarcodeDetector' in globalThis) {
+  barcodeDetector = new BarcodeDetector({ formats: ['qr_code'] })
 } else {
-  console.warn("BarcodeDetector not supported in this browser.")
+  console.warn('BarcodeDetector not supported in this browser.')
 }
 
-const video = document.getElementById("video") as HTMLVideoElement
-const canvas = document.getElementById("overlay") as HTMLCanvasElement
+const video = document.getElementById('video') as HTMLVideoElement
+const canvas = document.getElementById('overlay') as HTMLCanvasElement
 
 /* =====================================
-   THREE SETUP
+   THREE + WebXR SETUP
 ===================================== */
 
-const renderer = new THREE.WebGLRenderer({
-  canvas,
-  alpha: true,
-  antialias: true
-})
+const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true })
+renderer.xr.enabled = true
+renderer.setPixelRatio(window.devicePixelRatio)
 
 const scene = new THREE.Scene()
 
-let camera: THREE.OrthographicCamera
+let camera: THREE.PerspectiveCamera
 let cube: THREE.Mesh | null = null
 let cubeEdges: THREE.LineSegments | null = null
 
 function setupThree(width: number, height: number) {
-  canvas.width = width
-  canvas.height = height
-
-  renderer.setSize(width, height, false)
-
-  camera = new THREE.OrthographicCamera(
-    -width / 2,
-    width / 2,
-    height / 2,
-    -height / 2,
-    0.1,
-    1000
-  )
-
-  camera.position.z = 100
-  camera.updateProjectionMatrix()
+  camera = new THREE.PerspectiveCamera(70, width / height, 0.1, 1000)
+  camera.position.set(0, 0, 0)
+  scene.add(camera)
 
   // Cube
-  const geometry = new THREE.BoxGeometry(80, 80, 80)
+  const geometry = new THREE.BoxGeometry(0.2, 0.2, 0.2)
   const material = new THREE.MeshBasicMaterial({ color: 0x00ff00 })
   cube = new THREE.Mesh(geometry, material)
   cube.visible = false
-  cube.rotation.set(0.4, 0.2, 0)
   scene.add(cube)
 
-  // Cube edges (black border)
+  // Cube edges
   const edgesGeometry = new THREE.EdgesGeometry(geometry)
-  const edgesMaterial = new THREE.LineBasicMaterial({ color: 0x000000, linewidth: 2 })
+  const edgesMaterial = new THREE.LineBasicMaterial({ color: 0x000000 })
   cubeEdges = new THREE.LineSegments(edgesGeometry, edgesMaterial)
   cubeEdges.visible = false
   scene.add(cubeEdges)
-}
-
-/* =====================================
-   VIDEO → WORLD CONVERSION
-===================================== */
-
-function videoToWorld(x: number, y: number) {
-  const worldX = x - canvas.width / 2
-  const worldY = -(y - canvas.height / 2)
-  return { worldX, worldY }
 }
 
 /* =====================================
@@ -97,7 +67,7 @@ function startRenderLoop() {
       cube.rotation.y += 0.01
     }
 
-    // Sync edges with cube
+    // Sync edges
     if (cube && cubeEdges) {
       cubeEdges.position.copy(cube.position)
       cubeEdges.rotation.copy(cube.rotation)
@@ -111,54 +81,6 @@ function startRenderLoop() {
 }
 
 /* =====================================
-   QR DETECTION LOOP
-===================================== */
-
-function startDetectionLoop() {
-  if (!barcodeDetector) return
-
-  detectInterval = window.setInterval(async () => {
-    try {
-      const barcodes = await barcodeDetector!.detect(video)
-      const now = Date.now()
-
-      if (barcodes.length > 0) {
-        const box = barcodes[0].boundingBox
-        lastDetectedTime = now   // ✅ update global time
-
-        const centerX = box.x + box.width / 2
-        const centerY = box.y + box.height / 2
-        const { worldX, worldY } = videoToWorld(centerX, centerY)
-
-        if (cube && cubeEdges) {
-          cube.visible = true
-          cubeEdges.visible = true
-
-          cube.position.lerp(
-            new THREE.Vector3(worldX, worldY, 0),
-            0.3
-          )
-
-          const scale = box.width / 120
-          cube.scale.set(scale, scale, scale)
-        }
-      }
-
-      // ⚡ Only hide cube if QR not seen for a while
-      if (now - lastDetectedTime > detectionGracePeriod) {
-        if (cube && cubeEdges) {
-          cube.visible = false
-          cubeEdges.visible = false
-        }
-      }
-
-    } catch (err) {
-      console.error("Detection error:", err)
-    }
-  }, 100)
-}
-
-/* =====================================
    CAMERA STREAM
 ===================================== */
 
@@ -166,7 +88,7 @@ async function startStream() {
   if (isStarted) return
 
   const stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: "environment" },
+    video: { facingMode: 'environment' },
     audio: false
   })
 
@@ -185,7 +107,74 @@ async function startStream() {
   startRenderLoop()
   startDetectionLoop()
 
+  // Start WebXR AR session
+  if (navigator.xr) {
+    const supported = await navigator.xr.isSessionSupported('immersive-ar')
+    if (supported) {
+      const session = await navigator.xr.requestSession('immersive-ar', {
+        requiredFeatures: ['hit-test', 'dom-overlay'],
+        domOverlay: { root: document.body },
+      })
+      renderer.xr.setSession(session)
+    } else {
+      console.warn('WebXR AR not supported')
+    }
+  }
+
   isStarted = true
+}
+
+/* =====================================
+   QR DETECTION + HIT TEST
+===================================== */
+
+function startDetectionLoop() {
+  if (!barcodeDetector) return
+
+  detectInterval = window.setInterval(async () => {
+    try {
+      const barcodes = await barcodeDetector!.detect(video)
+      const now = Date.now()
+
+      if (barcodes.length > 0) {
+        lastDetectedTime = now
+        const box = barcodes[0].boundingBox
+
+        // Convert QR center to normalized coordinates (0..1)
+        const centerX = box.x + box.width / 2
+        const centerY = box.y + box.height / 2
+        const nx = centerX / video.videoWidth
+        const ny = centerY / video.videoHeight
+
+        // Map to AR world coordinates in front of camera
+        if (cube && cubeEdges) {
+          const distance = 0.5 // meters in front of camera
+          const baseCubeSize = 0.15 // default cube size in meters
+          const aspect = video.videoWidth / video.videoHeight
+          const fov = camera.fov * (Math.PI / 180)
+          const h = 2 * Math.tan(fov / 2) * distance
+          const w = h * aspect
+          const xWorld = (nx - 0.5) * w
+          const yWorld = -(ny - 0.5) * h
+
+          cube.visible = true
+          cubeEdges.visible = true
+
+          // Smooth movement
+          cube.position.lerp(new THREE.Vector3(xWorld, yWorld, -distance), 0.3)
+        }
+      }
+
+      if (now - lastDetectedTime > detectionGracePeriod) {
+        if (cube && cubeEdges) {
+          cube.visible = false
+          cubeEdges.visible = false
+        }
+      }
+    } catch (err) {
+      console.error('Detection error:', err)
+    }
+  }, 100)
 }
 
 /* =====================================
@@ -195,6 +184,7 @@ async function startStream() {
 function stopStream() {
   const stream = video.srcObject as MediaStream | null
   stream?.getTracks().forEach(track => track.stop())
+  video.srcObject = null
 
   if (animationId) cancelAnimationFrame(animationId)
   if (detectInterval) clearInterval(detectInterval)
@@ -204,6 +194,10 @@ function stopStream() {
     cubeEdges.visible = false
   }
 
+  renderer.clear()
+  const ctx = canvas.getContext('2d')
+  if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height)
+
   isStarted = false
 }
 
@@ -211,10 +205,10 @@ function stopStream() {
    BUTTONS
 ===================================== */
 
-document.getElementById("stbtn")?.addEventListener("click", () => {
+document.getElementById('stbtn')?.addEventListener('click', () => {
   if (!isStarted) startStream()
 })
 
-document.getElementById("btn")?.addEventListener("click", () => {
+document.getElementById('btn')?.addEventListener('click', () => {
   if (isStarted) stopStream()
 })
