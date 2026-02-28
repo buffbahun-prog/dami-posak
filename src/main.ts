@@ -149,7 +149,7 @@ function startDetectionLoop() {
         // Map to AR world coordinates in front of camera
         if (cube && cubeEdges) {
           const distance = 0.5 // meters in front of camera
-          const baseCubeSize = 0.15 // default cube size in meters
+          // const baseCubeSize = 0.15 // default cube size in meters
           const aspect = video.videoWidth / video.videoHeight
           const fov = camera.fov * (Math.PI / 180)
           const h = 2 * Math.tan(fov / 2) * distance
