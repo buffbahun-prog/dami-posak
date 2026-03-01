@@ -1,49 +1,146 @@
+/* Reset / root */
 :root {
   font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-  padding: 0;
   margin: 0;
-
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  padding: 0;
+  background-color: #000;
+  color: #fff;
 }
 
-.vdo {
-  height: 70vh;
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* App container fills screen */
+#app {
   position: relative;
+  width: 100%;
+  height: 100%;
 }
 
+/* Video fills entire screen */
 #video, #overlay {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
-  height: 70vh;
+  height: 100%;
+  object-fit: cover; /* keeps aspect ratio, fills screen */
 }
 
-#video {
-  /* opacity: 0; */
-}
-
+/* Overlay should be on top */
 #overlay {
-  pointer-events: none; /* don’t block clicks */
   z-index: 10;
+  pointer-events: none;
 }
 
-.btn-cont {
+/* Controls container */
+.controls {
+  position: absolute;
+  bottom: 30px; /* distance from bottom */
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  justify-content: center;
+  gap: 25px;
+  z-index: 20;
+}
+
+/* Buttons styling */
+button {
+  padding: 8px;
+  font-size: 16px;
+  border-radius: 50px;
+  border: none;
+  background-color: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  backdrop-filter: blur(5px);
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+#stbtn > div {
+  width: 35px;
+  height: 35px;
+  border-radius: 50px;
+  border: solid 2px white;
+  transition: background-color 0.9s ease;
+}
+
+#stbtn > div.recording {
+  border-color: red;
+  background-color: red;
+}
+
+#pause {
+  padding: 10px;
   display: flex;
   justify-content: space-between;
+  gap: 7px;
+  border: none;
+  background: none;
 }
 
-button {
-  padding: 10px 20px;
-  margin-bottom: 20px;
+#pause > div {
+  width: 6px;
+  height: 30px;
+  border-radius: 5px;
+  background-color: white;
+}
+
+#pause.paused > div {
+  background-color: red;
+  transition: background-color 0.9s ease;
+}
+
+#pause:hover {
+  opacity: .8;
+}
+
+button:hover {
+  background-color: rgba(255, 255, 255, 0.4);
+}
+
+.button {
+  padding: 8px;
+  font-size: 16px;
+  border-radius: 50px;
+  border: none;
+  background-color: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  backdrop-filter: blur(5px);
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.button:hover {
+  background-color: rgba(255, 255, 255, 0.4);
+}
+
+#rectime {
+  position: absolute;
+  top: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: red;
+  color: white;
+  border-radius: 10px;
+  padding: 5px 10px;
+  z-index: 10;
+  display: none;
+  transition: all 0.5 ease;
+}
+
+#rectime.show {
+  display: block;
+}
+
+#downloadButton {
+  display: none;
+}
+
+#downloadButton.show {
   display: block;
 }
