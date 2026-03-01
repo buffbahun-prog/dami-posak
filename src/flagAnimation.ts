@@ -33,7 +33,7 @@ export class NepalFlag {
     for (let i = 0; i < this.geometry.attributes.position.count; i++) {
       const x = this.geometry.attributes.position.getX(i)
       const y = this.geometry.attributes.position.getY(i)
-      const wave = 0.05 * Math.sin((x + time * 2) * 3) * Math.cos((y + time * 1.5) * 2)
+      const wave = 0.01 * Math.sin((x + time * 2) * 3) * Math.cos((y + time * 1.5) * 2)
       this.geometry.attributes.position.setZ(i, wave)
     }
 

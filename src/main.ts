@@ -6,8 +6,19 @@ import { NepalFlag } from './flagAnimation'
    GLOBAL STATE
 ===================================== */
 
+// QR configuration from JSON
+let currentQRConfig: {
+  anim: string
+  posX: number
+  posY: number
+  width: number
+  height: number
+} | null = null
+
+const REAL_QR_SIZE = 0.04 // 4cm printed QR on shirt
+
 let lastDetectedTime = 0
-const detectionGracePeriod = 500 // ms
+// const detectionGracePeriod = 500 // ms
 let isStarted = false
 let animationId: number | null = null
 let detectInterval: number | null = null
@@ -140,6 +151,65 @@ async function startStream() {
    QR DETECTION + FLAG ANCHOR
 ===================================== */
 
+// function startDetectionLoop() {
+//   if (!barcodeDetector || !nepalFlag) return
+
+//   detectInterval = window.setInterval(async () => {
+//     try {
+//       const barcodes = await barcodeDetector!.detect(video)
+//       const now = Date.now()
+
+//       if (barcodes.length > 0) {
+//         lastDetectedTime = now
+//         const box = barcodes[0].boundingBox
+
+//         // QR center normalized
+//         const centerX = box.x + box.width / 2
+//         const centerY = box.y + box.height / 2
+//         const nx = centerX / video.videoWidth
+//         const ny = centerY / video.videoHeight
+
+//         // Map to AR world coordinates
+//         const distance = 0.5 // meters in front of camera
+//         const aspect = video.videoWidth / video.videoHeight
+//         const fov = camera.fov * (Math.PI / 180)
+//         const h = 2 * Math.tan(fov / 2) * distance
+//         const w = h * aspect
+//         const xWorld = (nx - 0.5) * w
+//         const yWorld = -(ny - 0.5) * h
+
+//         // const qrWidth = barcodes[0].boundingBox.width;
+//         // const qrHeight = barcodes[0].boundingBox.height;
+//         // const worldWidth = qrWidth * w * 1.2   // 1.2 → slightly bigger than QR
+//         // const worldHeight = qrHeight * h * 1.2
+
+//         const worldWidth = 0.1;   // 1.2 → slightly bigger than QR
+//         const worldHeight = 0.1;
+
+//         console.log(worldWidth, worldHeight);
+
+//         // Rotation based on QR orientation
+//         const [tl, tr] = barcodes[0].cornerPoints
+//         const angle = Math.atan2(tr.y - tl.y, tr.x - tl.x)
+
+//         if (!nepalFlag) return;
+//         // Anchor flag to QR
+//         nepalFlag.mesh.position.lerp(new THREE.Vector3(xWorld, yWorld, -distance), 0.3)
+//         // Scale flag to match QR size + a little bigger
+//         nepalFlag.mesh.scale.set(worldWidth, worldHeight, 1)
+//         nepalFlag.mesh.rotation.set(0, 0, -angle)
+//         nepalFlag.mesh.visible = true
+//       }
+
+//       if (nepalFlag && (now - lastDetectedTime > detectionGracePeriod)) {
+//         nepalFlag.mesh.visible = false
+//       }
+//     } catch (err) {
+//       console.error('Detection error:', err)
+//     }
+//   }, 250) // slower detection for mobile
+// }
+
 function startDetectionLoop() {
   if (!barcodeDetector || !nepalFlag) return
 
@@ -150,53 +220,125 @@ function startDetectionLoop() {
 
       if (barcodes.length > 0) {
         lastDetectedTime = now
-        const box = barcodes[0].boundingBox
+        const barcode = barcodes[0]
+        const box = barcode.boundingBox
 
-        // QR center normalized
+        /* ---------------------------
+           1. PARSE QR JSON
+        ---------------------------- */
+        try {
+          const parsed = JSON.parse(barcode.rawValue || '')
+
+          if (
+            parsed.anim &&
+            typeof parsed.posX === 'number' &&
+            typeof parsed.posY === 'number' &&
+            typeof parsed.width === 'number' &&
+            typeof parsed.height === 'number'
+          ) {
+            currentQRConfig = parsed
+          }
+        } catch (e) {
+          console.warn('QR does not contain valid JSON')
+        }
+
+        if (!currentQRConfig) return
+
+        /* ---------------------------
+           2. ESTIMATE DISTANCE
+        ---------------------------- */
+        const qrPixelWidth = box.width
+        const focalLength =
+          video.videoWidth /
+          (2 * Math.tan((camera.fov * Math.PI) / 360))
+
+        const distance =
+          (REAL_QR_SIZE * focalLength) / qrPixelWidth
+
+        /* ---------------------------
+           3. NORMALIZED CENTER
+        ---------------------------- */
         const centerX = box.x + box.width / 2
         const centerY = box.y + box.height / 2
+
         const nx = centerX / video.videoWidth
         const ny = centerY / video.videoHeight
 
-        // Map to AR world coordinates
-        const distance = 0.5 // meters in front of camera
         const aspect = video.videoWidth / video.videoHeight
         const fov = camera.fov * (Math.PI / 180)
-        const h = 2 * Math.tan(fov / 2) * distance
-        const w = h * aspect
-        const xWorld = (nx - 0.5) * w
-        const yWorld = -(ny - 0.5) * h
 
-        // const qrWidth = barcodes[0].boundingBox.width;
-        // const qrHeight = barcodes[0].boundingBox.height;
-        // const worldWidth = qrWidth * w * 1.2   // 1.2 → slightly bigger than QR
-        // const worldHeight = qrHeight * h * 1.2
+        const viewHeight = 2 * Math.tan(fov / 2) * distance
+        const viewWidth = viewHeight * aspect
 
-        const worldWidth = 0.1;   // 1.2 → slightly bigger than QR
-        const worldHeight = 0.1;
+        const xWorld = (nx - 0.5) * viewWidth
+        const yWorld = -(ny - 0.5) * viewHeight
 
-        console.log(worldWidth, worldHeight);
+        /* ---------------------------
+           4. APPLY JSON OFFSETS
+           (in meters relative to QR)
+        ---------------------------- */
+        const targetPosition = new THREE.Vector3(
+          xWorld - currentQRConfig.posX,
+          yWorld - currentQRConfig.posY,
+          -distance
+        )
 
-        // Rotation based on QR orientation
-        const [tl, tr] = barcodes[0].cornerPoints
-        const angle = Math.atan2(tr.y - tl.y, tr.x - tl.x)
-
+        /* ---------------------------
+           5. SMOOTH POSITION
+        ---------------------------- */
         if (!nepalFlag) return;
-        // Anchor flag to QR
-        nepalFlag.mesh.position.lerp(new THREE.Vector3(xWorld, yWorld, -distance), 0.3)
-        // Scale flag to match QR size + a little bigger
-        nepalFlag.mesh.scale.set(worldWidth, worldHeight, 1)
-        nepalFlag.mesh.rotation.set(0, 0, -angle)
-        nepalFlag.mesh.visible = true
+        nepalFlag.mesh.position.lerp(targetPosition, 0.15)
+
+        /* ---------------------------
+           6. SCALE FROM JSON
+        ---------------------------- */
+        nepalFlag.mesh.scale.lerp(
+          new THREE.Vector3(
+            currentQRConfig.width,
+            currentQRConfig.height,
+            1
+          ),
+          0.2
+        )
+
+        /* ---------------------------
+           7. ROTATION (SMOOTH)
+        ---------------------------- */
+        if (barcode.cornerPoints.length >= 2) {
+          const [tl, tr] = barcode.cornerPoints
+          const angle = Math.atan2(
+            tr.y - tl.y,
+            tr.x - tl.x
+          )
+
+          nepalFlag.mesh.rotation.z =
+            THREE.MathUtils.lerp(
+              nepalFlag.mesh.rotation.z,
+              -angle,
+              0.2
+            )
+        }
+
+        /* ---------------------------
+           8. ANIMATION SWITCHING
+        ---------------------------- */
+        if (currentQRConfig.anim === 'nepal_flag') {
+          nepalFlag.mesh.visible = true
+        } else {
+          nepalFlag.mesh.visible = false
+        }
       }
 
-      if (nepalFlag && (now - lastDetectedTime > detectionGracePeriod)) {
+      /* ---------------------------
+         9. HIDE IF LOST
+      ---------------------------- */
+      if (nepalFlag && now - lastDetectedTime > 1000) {
         nepalFlag.mesh.visible = false
       }
     } catch (err) {
       console.error('Detection error:', err)
     }
-  }, 250) // slower detection for mobile
+  }, 250)
 }
 
 /* =====================================
