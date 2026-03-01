@@ -10,7 +10,7 @@ import { NepalFlag } from './flagAnimation'
 let currentQRConfig: number[] = [];
 
 const REAL_BARCODE_WIDTH = 0.20  // 20 cm
-const REAL_BARCODE_HEIGHT = 0.10 // 10 cm
+// const REAL_BARCODE_HEIGHT = 0.10 // 10 cm
 
 let lastDetectedTime = 0
 // const detectionGracePeriod = 500 // ms
