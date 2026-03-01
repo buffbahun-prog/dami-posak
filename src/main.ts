@@ -1,5 +1,6 @@
 import './style.css'
 import * as THREE from 'three'
+import { NepalFlag } from './flagAnimation'
 
 /* =====================================
    GLOBAL STATE
@@ -41,34 +42,34 @@ renderer.xr.enabled = true
 renderer.setPixelRatio(window.devicePixelRatio)
 
 const scene = new THREE.Scene()
-
 let camera: THREE.PerspectiveCamera
-let cube: THREE.Mesh | null = null
-let cubeEdges: THREE.LineSegments | null = null
+
+// Nepal flag variable
+let nepalFlag: NepalFlag | null = null
 
 function setupThree(width: number, height: number) {
   camera = new THREE.PerspectiveCamera(70, width / height, 0.1, 1000)
   camera.position.set(0, 0, 0)
   scene.add(camera)
 
-   // 🔥 Use camera video as scene background
-   const videoTexture = new THREE.VideoTexture(video)
-   videoTexture.colorSpace = THREE.SRGBColorSpace
-   scene.background = videoTexture
+  // Add directional light for Phong material
+const dirLight = new THREE.DirectionalLight(0xffffff, 1)
+dirLight.position.set(1, 1, 1)
+scene.add(dirLight)
 
-  // Cube
-  const geometry = new THREE.BoxGeometry(0.2, 0.2, 0.2)
-  const material = new THREE.MeshBasicMaterial({ color: 0x00ff00 })
-  cube = new THREE.Mesh(geometry, material)
-  cube.visible = false
-  scene.add(cube)
+// Optional ambient light
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.5)
+scene.add(ambientLight)
 
-  // Cube edges
-  const edgesGeometry = new THREE.EdgesGeometry(geometry)
-  const edgesMaterial = new THREE.LineBasicMaterial({ color: 0x000000 })
-  cubeEdges = new THREE.LineSegments(edgesGeometry, edgesMaterial)
-  cubeEdges.visible = false
-  scene.add(cubeEdges)
+  // Use camera video as scene background
+  const videoTexture = new THREE.VideoTexture(video)
+  videoTexture.colorSpace = THREE.SRGBColorSpace
+  scene.background = videoTexture
+
+  // Add Nepal flag
+  nepalFlag = new NepalFlag('nepal-flag.png', 1, 0.7, 32)
+  nepalFlag.mesh.visible = false // initially hidden
+  scene.add(nepalFlag.mesh)
 }
 
 /* =====================================
@@ -77,17 +78,9 @@ function setupThree(width: number, height: number) {
 
 function startRenderLoop() {
   function render() {
-    // Rotate cube continuously
-    if (cube) {
-      cube.rotation.x += 0.01
-      cube.rotation.y += 0.01
-    }
-
-    // Sync edges
-    if (cube && cubeEdges) {
-      cubeEdges.position.copy(cube.position)
-      cubeEdges.rotation.copy(cube.rotation)
-      cubeEdges.scale.copy(cube.scale)
+    // Update flag animation
+    if (nepalFlag && nepalFlag.mesh.visible) {
+      nepalFlag.update()
     }
 
     renderer.render(scene, camera)
@@ -120,14 +113,13 @@ async function startStream() {
   await video.play()
 
   recordBtn?.querySelector("div")?.classList.add("recording");
-
   startRecording()
 
   setupThree(video.videoWidth, video.videoHeight)
   startRenderLoop()
   startDetectionLoop()
 
-  // Start WebXR AR session
+  // WebXR optional
   if (navigator.xr) {
     const supported = await navigator.xr.isSessionSupported('immersive-ar')
     if (supported) {
@@ -138,7 +130,6 @@ async function startStream() {
       renderer.xr.setSession(session)
     } else {
       console.warn('WebXR AR not supported')
-      // alert('WebXR AR not supported')
     }
   }
 
@@ -146,11 +137,11 @@ async function startStream() {
 }
 
 /* =====================================
-   QR DETECTION + HIT TEST
+   QR DETECTION + FLAG ANCHOR
 ===================================== */
 
 function startDetectionLoop() {
-  if (!barcodeDetector) return
+  if (!barcodeDetector || !nepalFlag) return
 
   detectInterval = window.setInterval(async () => {
     try {
@@ -161,44 +152,51 @@ function startDetectionLoop() {
         lastDetectedTime = now
         const box = barcodes[0].boundingBox
 
-        // Convert QR center to normalized coordinates (0..1)
+        // QR center normalized
         const centerX = box.x + box.width / 2
         const centerY = box.y + box.height / 2
         const nx = centerX / video.videoWidth
         const ny = centerY / video.videoHeight
 
-        // Map to AR world coordinates in front of camera
-        if (cube && cubeEdges) {
-          const distance = 0.5 // meters in front of camera
-          const aspect = video.videoWidth / video.videoHeight
-          const fov = camera.fov * (Math.PI / 180)
-          const h = 2 * Math.tan(fov / 2) * distance
-          const w = h * aspect
-          const xWorld = (nx - 0.5) * w
-          const yWorld = -(ny - 0.5) * h
+        // Map to AR world coordinates
+        const distance = 0.5 // meters in front of camera
+        const aspect = video.videoWidth / video.videoHeight
+        const fov = camera.fov * (Math.PI / 180)
+        const h = 2 * Math.tan(fov / 2) * distance
+        const w = h * aspect
+        const xWorld = (nx - 0.5) * w
+        const yWorld = -(ny - 0.5) * h
 
-          const [tl, tr] = barcodes[0].cornerPoints
-          const angle = Math.atan2(tr.y - tl.y, tr.x - tl.x)
-          cube.rotation.z = -angle
+        // const qrWidth = barcodes[0].boundingBox.width;
+        // const qrHeight = barcodes[0].boundingBox.height;
+        // const worldWidth = qrWidth * w * 1.2   // 1.2 → slightly bigger than QR
+        // const worldHeight = qrHeight * h * 1.2
 
-          cube.visible = true
-          cubeEdges.visible = true
+        const worldWidth = 0.1;   // 1.2 → slightly bigger than QR
+        const worldHeight = 0.1;
 
-          // Smooth movement
-          cube.position.lerp(new THREE.Vector3(xWorld, yWorld, -distance), 0.3)
-        }
+        console.log(worldWidth, worldHeight);
+
+        // Rotation based on QR orientation
+        const [tl, tr] = barcodes[0].cornerPoints
+        const angle = Math.atan2(tr.y - tl.y, tr.x - tl.x)
+
+        if (!nepalFlag) return;
+        // Anchor flag to QR
+        nepalFlag.mesh.position.lerp(new THREE.Vector3(xWorld, yWorld, -distance), 0.3)
+        // Scale flag to match QR size + a little bigger
+        nepalFlag.mesh.scale.set(worldWidth, worldHeight, 1)
+        nepalFlag.mesh.rotation.set(0, 0, -angle)
+        nepalFlag.mesh.visible = true
       }
 
-      if (now - lastDetectedTime > detectionGracePeriod) {
-        if (cube && cubeEdges) {
-          cube.visible = false
-          cubeEdges.visible = false
-        }
+      if (nepalFlag && (now - lastDetectedTime > detectionGracePeriod)) {
+        nepalFlag.mesh.visible = false
       }
     } catch (err) {
       console.error('Detection error:', err)
     }
-  }, 100)
+  }, 250) // slower detection for mobile
 }
 
 /* =====================================
@@ -214,7 +212,6 @@ function stopStream() {
 
   if (recorder && recorder.state !== "inactive") {
     recorder.stop()
-
     recorder.onstop = () => {
       const blob = new Blob(recordedChunks, { type: recorder!.mimeType })
       if (recordTimeIntervalId) clearInterval(recordTimeIntervalId);
@@ -231,14 +228,10 @@ function stopStream() {
     }
   }
 
-
   if (animationId) cancelAnimationFrame(animationId)
   if (detectInterval) clearInterval(detectInterval)
 
-  if (cube && cubeEdges) {
-    cube.visible = false
-    cubeEdges.visible = false
-  }
+  if (nepalFlag) nepalFlag.mesh.visible = false
 
   renderer.clear()
   const ctx = canvas.getContext('2d')
@@ -248,11 +241,11 @@ function stopStream() {
 }
 
 /* =====================================
-  RECORDING
-====================================== */
+   RECORDING
+===================================== */
 
 function startRecording() {
-  const canvasStream = canvas.captureStream(60)
+  const canvasStream = canvas.captureStream(30) // lower FPS for mobile
 
   recorder = new MediaRecorder(canvasStream, {
     mimeType: 'video/webm;codecs=vp9'
@@ -264,9 +257,7 @@ function startRecording() {
   recordTimeIntervalId = startTimer();
 
   recorder.ondataavailable = (event) => {
-    if (event.data.size > 0) {
-      recordedChunks.push(event.data)
-    }
+    if (event.data.size > 0) recordedChunks.push(event.data)
   }
 
   recorder.start()
@@ -274,7 +265,6 @@ function startRecording() {
 
 function pauseRecording() {
   if (recorder?.state === "recording") {
-
     recorder.pause();
     if (recordTimeIntervalId) clearInterval(recordTimeIntervalId);
   }
@@ -292,12 +282,8 @@ function resumeRecording() {
 ===================================== */
 
 recordBtn?.addEventListener('click', () => {
-  if (!isStarted) {
-    startStream();
-  }
-  else {
-    stopStream();
-  }
+  if (!isStarted) startStream()
+  else stopStream()
 })
 
 pauseBtn?.addEventListener('click', () => {
@@ -316,18 +302,15 @@ function startTimer(): number {
 
   const id = setInterval(() => {
     totalRecordSeconds++;
-
-    const hours = Math.floor(totalRecordSeconds / 3600);
-    const minutes = Math.floor((totalRecordSeconds % 3600) / 60);
-    const seconds = totalRecordSeconds % 60;
-
+    const hours = Math.floor(totalRecordSeconds / 3600)
+    const minutes = Math.floor((totalRecordSeconds % 3600) / 60)
+    const seconds = totalRecordSeconds % 60
     if (recordTime) {
       recordTime.textContent =
-        `${String(hours).padStart(2, '0')}:` +
-        `${String(minutes).padStart(2, '0')}:` +
-        `${String(seconds).padStart(2, '0')}`;
+        `${String(hours).padStart(2,'0')}:` +
+        `${String(minutes).padStart(2,'0')}:` +
+        `${String(seconds).padStart(2,'0')}`
     }
-  }, 1000);
-
-  return id;
+  }, 1000)
+  return id
 }
