@@ -7,12 +7,9 @@ import { NepalFlag } from './flagAnimation'
 ===================================== */
 
 let currentQRConfig: number[] = []
-const REAL_BARCODE_WIDTH = 0.20 // 20cm
-
-// let lastDetectedTime = 0
+const REAL_BARCODE_WIDTH = 0.20  // 20 cm
 let isStarted = false
 let animationId: number | null = null
-let detectInterval: number | null = null
 let barcodeDetector: BarcodeDetector | null = null
 
 if ('BarcodeDetector' in globalThis) {
@@ -35,7 +32,7 @@ let recorder: MediaRecorder | null = null
 let recordedChunks: BlobPart[] = []
 
 /* =====================================
-   THREE.JS SETUP
+   THREE + WebXR SETUP
 ===================================== */
 
 const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true })
@@ -51,19 +48,17 @@ function setupThree(width: number, height: number) {
   camera.position.set(0, 0, 0)
   scene.add(camera)
 
-  // Lights
   const dirLight = new THREE.DirectionalLight(0xffffff, 1)
   dirLight.position.set(1, 1, 1)
   scene.add(dirLight)
 
-  scene.add(new THREE.AmbientLight(0xffffff, 0.5))
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.5)
+  scene.add(ambientLight)
 
-  // Video background
   const videoTexture = new THREE.VideoTexture(video)
   videoTexture.colorSpace = THREE.SRGBColorSpace
   scene.background = videoTexture
 
-  // Nepal flag
   nepalFlag = new NepalFlag('nepal-flag.png', 1, 0.7, 32)
   nepalFlag.mesh.visible = false
   scene.add(nepalFlag.mesh)
@@ -74,8 +69,10 @@ function setupThree(width: number, height: number) {
 ===================================== */
 
 function startRenderLoop() {
-  const render = () => {
-    if (nepalFlag?.mesh.visible) nepalFlag.update()
+  function render() {
+    if (nepalFlag && nepalFlag.mesh.visible) {
+      nepalFlag.update()
+    }
     renderer.render(scene, camera)
     animationId = requestAnimationFrame(render)
   }
@@ -93,12 +90,11 @@ async function startStream() {
     video: { facingMode: 'environment' },
     audio: false
   })
-
   video.srcObject = stream
   video.muted = true
   video.playsInline = true
 
-  await new Promise<void>(resolve => {
+  await new Promise<void>((resolve) => {
     if (video.readyState >= 1) resolve()
     else video.onloadedmetadata = () => resolve()
   })
@@ -106,129 +102,96 @@ async function startStream() {
 
   recordBtn?.querySelector("div")?.classList.add("recording")
   startRecording()
+
   setupThree(video.videoWidth, video.videoHeight)
   startRenderLoop()
-  startDetectionLoop()
-  setupWebXR()
+
+  // Initialize barcode anchor
+  await initBarcodeAnchor()
+
+  // WebXR optional
+  if (navigator.xr) {
+    const supported = await navigator.xr.isSessionSupported('immersive-ar')
+    if (supported) {
+      const session = await navigator.xr.requestSession('immersive-ar', {
+        requiredFeatures: ['dom-overlay'],
+        domOverlay: { root: document.body },
+      })
+      renderer.xr.setSession(session)
+    }
+  }
 
   isStarted = true
 }
 
-async function setupWebXR() {
-  if (!navigator.xr) return
-  const supported = await navigator.xr.isSessionSupported('immersive-ar')
-  if (!supported) return console.warn('WebXR AR not supported')
-
-  const session = await navigator.xr.requestSession('immersive-ar', {
-    requiredFeatures: ['dom-overlay'],
-    domOverlay: { root: document.body }
-  })
-  renderer.xr.setSession(session)
-}
-
 /* =====================================
-   BARCODE DETECTION & INITIAL ANCHOR
+   BARCODE ANCHOR (ONE-TIME DETECTION)
 ===================================== */
 
-function startDetectionLoop() {
+async function initBarcodeAnchor() {
   if (!barcodeDetector || !nepalFlag) return
 
+  let barcode: DetectedBarcode | null = null
   let smoothedDistance = 0
-  let initialAnchored = false
-  let anchorData: {
-    nx: number
-    ny: number
-    distance: number
-    angle: number
-  } | null = null
 
-  const detectOnce = async () => {
+  while (!barcode) {
     try {
-      const barcodes = await barcodeDetector!.detect(video)
-      if (barcodes.length === 0) return
-
-      const barcode = barcodes[0]
-      const box = barcode.boundingBox
-
-      // 1️⃣ Parse JSON from barcode
-      try {
-        currentQRConfig = barcode.rawValue.split(",").map(Number)
-        console.log("parsed", currentQRConfig)
-      } catch {
-        console.warn('Barcode does not contain valid JSON')
-        return
+      const barcodes = await barcodeDetector.detect(video)
+      if (barcodes.length > 0) {
+        barcode = barcodes[0]
+        break
       }
-
-      // 2️⃣ Estimate distance using barcode width
-      const focalLength = video.videoWidth / (2 * Math.tan((camera.fov * Math.PI) / 360))
-      const rawDistance = (REAL_BARCODE_WIDTH * focalLength) / box.width
-      smoothedDistance = THREE.MathUtils.lerp(smoothedDistance || rawDistance, rawDistance, 0.2)
-      const distance = smoothedDistance
-
-      // 3️⃣ Normalize center
-      const nx = (box.x + box.width / 2) / video.videoWidth
-      const ny = (box.y + box.height / 2) / video.videoHeight
-
-      // 4️⃣ Barcode rotation
-      let angle = 0
-      if (barcode.cornerPoints.length >= 2) {
-        const [tl, tr] = barcode.cornerPoints
-        angle = Math.atan2(tr.y - tl.y, tr.x - tl.x)
-      }
-
-      anchorData = { nx, ny, distance, angle }
-      initialAnchored = true
-
-      // 5️⃣ Stop further detection
-      if (detectInterval) clearInterval(detectInterval)
-
     } catch (err) {
       console.error('Detection error:', err)
     }
+    await new Promise(r => setTimeout(r, 200))
   }
 
-  // Run detection loop until data is obtained
-  detectInterval = window.setInterval(() => {
-    if (!initialAnchored) detectOnce()
-  }, 250)
-
-  // 6️⃣ Update AR content using anchorData in render loop
-  const updateFlagPosition = () => {
-    if (!nepalFlag || !anchorData) return
-
-    const { nx, ny, distance, angle } = anchorData
-    const aspect = video.videoWidth / video.videoHeight
-    const fov = camera.fov * (Math.PI / 180)
-
-    const viewHeight = 2 * Math.tan(fov / 2) * distance
-    const viewWidth = viewHeight * aspect
-
-    const xWorld = (nx - 0.5) * viewWidth + currentQRConfig[1]
-    const yWorld = -(ny - 0.5) * viewHeight + currentQRConfig[2]
-
-    // Smooth position
-    nepalFlag.mesh.position.lerp(new THREE.Vector3(xWorld, yWorld, -distance), 0.15)
-
-    // Scale (preserve aspect ratio)
-    const flagAspect = 1.5 / 0.7
-    const targetWidth = currentQRConfig[3]
-    const targetHeight = targetWidth / flagAspect
-    nepalFlag.mesh.scale.lerp(new THREE.Vector3(targetWidth, targetHeight, 1), 0.2)
-
-    // Smooth rotation
-    nepalFlag.mesh.rotation.z = THREE.MathUtils.lerp(nepalFlag.mesh.rotation.z, -angle, 0.2)
-
-    // Visibility
-    nepalFlag.mesh.visible = currentQRConfig[0] === 0
+  // Parse QR/Barcode JSON
+  try {
+    const parsed = barcode!.rawValue.split(",").map(st => parseFloat(st))
+    currentQRConfig = parsed
+  } catch {
+    console.warn('Invalid barcode data')
+    return
   }
 
-  // Add this call inside your render loop
-  function render() {
-    if (nepalFlag && anchorData) updateFlagPosition()
-    renderer.render(scene, camera)
-    animationId = requestAnimationFrame(render)
+  // Anchor flag position
+  const box = barcode!.boundingBox
+  const barcodePixelWidth = box.width
+  const focalLength = video.videoWidth / (2 * Math.tan((camera.fov * Math.PI) / 360))
+  smoothedDistance = (REAL_BARCODE_WIDTH * focalLength) / barcodePixelWidth
+
+  const centerX = box.x + box.width / 2
+  const centerY = box.y + box.height / 2
+  const nx = centerX / video.videoWidth
+  const ny = centerY / video.videoHeight
+
+  const aspect = video.videoWidth / video.videoHeight
+  const fov = camera.fov * (Math.PI / 180)
+  const viewHeight = 2 * Math.tan(fov / 2) * smoothedDistance
+  const viewWidth = viewHeight * aspect
+
+  const xWorld = (nx - 0.5) * viewWidth + currentQRConfig[1]
+  const yWorld = -(ny - 0.5) * viewHeight + currentQRConfig[2]
+  const distance = smoothedDistance
+
+  // Keep flag aspect ratio
+  const flagAspect = 1.5 / 0.7
+  const targetWidth = currentQRConfig[3]
+  const targetHeight = targetWidth / flagAspect
+
+  // Setup anchored flag
+  nepalFlag.mesh.position.set(xWorld, yWorld, -distance)
+  nepalFlag.mesh.scale.set(targetWidth, targetHeight, 1)
+  nepalFlag.mesh.visible = currentQRConfig[0] === 0
+
+  // Smoothly follow camera rotation (optional)
+  if (barcode!.cornerPoints.length >= 2) {
+    const [tl, tr] = barcode!.cornerPoints
+    const angle = Math.atan2(tr.y - tl.y, tr.x - tl.x)
+    nepalFlag.mesh.rotation.z = -angle
   }
-  render()
 }
 
 /* =====================================
@@ -239,6 +202,7 @@ function stopStream() {
   const stream = video.srcObject as MediaStream | null
   stream?.getTracks().forEach(track => track.stop())
   video.srcObject = null
+
   recordBtn?.querySelector("div")?.classList.remove("recording")
 
   if (recorder && recorder.state !== "inactive") {
@@ -246,8 +210,10 @@ function stopStream() {
     recorder.onstop = () => {
       const blob = new Blob(recordedChunks, { type: recorder!.mimeType })
       if (recordTimeIntervalId) clearInterval(recordTimeIntervalId)
-      recordTime?.classList.remove("show")
-      recordTime!.textContent = ''
+      if (recordTime) {
+        recordTime.classList.remove("show")
+        recordTime.textContent = ''
+      }
       if (downloadButton) {
         downloadButton.classList.add("show")
         downloadButton.href = URL.createObjectURL(blob)
@@ -257,11 +223,12 @@ function stopStream() {
   }
 
   if (animationId) cancelAnimationFrame(animationId)
-  if (detectInterval) clearInterval(detectInterval)
   if (nepalFlag) nepalFlag.mesh.visible = false
 
   renderer.clear()
-  canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height)
+  const ctx = canvas.getContext('2d')
+  if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height)
+
   isStarted = false
 }
 
@@ -275,10 +242,7 @@ function startRecording() {
   recordedChunks = []
   totalRecordSeconds = 0
   recordTimeIntervalId = startTimer()
-
-  recorder.ondataavailable = (event) => {
-    if (event.data.size > 0) recordedChunks.push(event.data)
-  }
+  recorder.ondataavailable = (event) => { if (event.data.size) recordedChunks.push(event.data) }
   recorder.start()
 }
 
@@ -300,31 +264,20 @@ function resumeRecording() {
    BUTTONS
 ===================================== */
 
-recordBtn?.addEventListener('click', () => {
-  isStarted ? stopStream() : startStream()
-})
-
+recordBtn?.addEventListener('click', () => { isStarted ? stopStream() : startStream() })
 pauseBtn?.addEventListener('click', () => {
   if (!pauseBtn) return
-  if (pauseBtn.classList.contains("paused")) {
-    pauseBtn.classList.remove("paused")
-    resumeRecording()
-  } else {
-    pauseBtn.classList.add("paused")
-    pauseRecording()
-  }
+  pauseBtn.classList.toggle('paused')
+  pauseBtn.classList.contains('paused') ? pauseRecording() : resumeRecording()
 })
 
 function startTimer(): number {
   recordTime?.classList.add("show")
-
   return setInterval(() => {
     totalRecordSeconds++
-    const hours = Math.floor(totalRecordSeconds / 3600)
-    const minutes = Math.floor((totalRecordSeconds % 3600) / 60)
-    const seconds = totalRecordSeconds % 60
-    if (recordTime) {
-      recordTime.textContent = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
-    }
+    const h = Math.floor(totalRecordSeconds / 3600)
+    const m = Math.floor((totalRecordSeconds % 3600) / 60)
+    const s = totalRecordSeconds % 60
+    if (recordTime) recordTime.textContent = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
   }, 1000)
 }
