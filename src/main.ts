@@ -282,6 +282,7 @@ async function startAR() {
   // Ensure API exists
 if (!xrSession.requestHitTestSource) {
   console.warn("Hit test not supported on this device")
+  alert("Hit test not supported on this device")
   return
 }
 
@@ -292,6 +293,7 @@ const source = await xrSession.requestHitTestSource({
 // Ensure it actually returned something
 if (!source) {
   console.warn("Failed to create hit test source")
+  alert("Failed to create hit test source")
   return
 }
 
