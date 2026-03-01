@@ -7,15 +7,10 @@ import { NepalFlag } from './flagAnimation'
 ===================================== */
 
 // QR configuration from JSON
-let currentQRConfig: {
-  anim: string
-  posX: number
-  posY: number
-  width: number
-  height: number
-} | null = null
+let currentQRConfig: number[] = [];
 
-const REAL_QR_SIZE = 0.04 // 4cm printed QR on shirt
+const REAL_BARCODE_WIDTH = 0.20  // 20 cm
+const REAL_BARCODE_HEIGHT = 0.10 // 10 cm
 
 let lastDetectedTime = 0
 // const detectionGracePeriod = 500 // ms
@@ -25,7 +20,7 @@ let detectInterval: number | null = null
 let barcodeDetector: BarcodeDetector | null = null
 
 if ('BarcodeDetector' in globalThis) {
-  barcodeDetector = new BarcodeDetector({ formats: ['qr_code'] })
+  barcodeDetector = new BarcodeDetector({ formats: ['code_128'] })
 } else {
   console.warn('BarcodeDetector not supported in this browser.')
 }
@@ -213,6 +208,7 @@ async function startStream() {
 function startDetectionLoop() {
   if (!barcodeDetector || !nepalFlag) return
 
+  let smoothedDistance = 0
   detectInterval = window.setInterval(async () => {
     try {
       const barcodes = await barcodeDetector!.detect(video)
@@ -227,17 +223,10 @@ function startDetectionLoop() {
            1. PARSE QR JSON
         ---------------------------- */
         try {
-          const parsed = JSON.parse(barcode.rawValue || '')
-
-          if (
-            parsed.anim &&
-            typeof parsed.posX === 'number' &&
-            typeof parsed.posY === 'number' &&
-            typeof parsed.width === 'number' &&
-            typeof parsed.height === 'number'
-          ) {
-            currentQRConfig = parsed
-          }
+          // const parsed = JSON.parse(barcode.rawValue || '')
+          const parsed = barcode.rawValue.split(",").map(st => parseFloat(st));
+          currentQRConfig = parsed;
+          console.log("parsed", parsed);
         } catch (e) {
           console.warn('QR does not contain valid JSON')
         }
@@ -245,15 +234,26 @@ function startDetectionLoop() {
         if (!currentQRConfig) return
 
         /* ---------------------------
-           2. ESTIMATE DISTANCE
-        ---------------------------- */
-        const qrPixelWidth = box.width
-        const focalLength =
-          video.videoWidth /
-          (2 * Math.tan((camera.fov * Math.PI) / 360))
+   2. ESTIMATE DISTANCE
+   (Using barcode width)
+---------------------------- */
+const barcodePixelWidth = box.width
 
-        const distance =
-          (REAL_QR_SIZE * focalLength) / qrPixelWidth
+const focalLength =
+  video.videoWidth /
+  (2 * Math.tan((camera.fov * Math.PI) / 360))
+
+  const rawDistance =
+  (REAL_BARCODE_WIDTH * focalLength) /
+  barcodePixelWidth
+
+smoothedDistance = THREE.MathUtils.lerp(
+  smoothedDistance || rawDistance,
+  rawDistance,
+  0.2
+)
+
+const distance = smoothedDistance
 
         /* ---------------------------
            3. NORMALIZED CENTER
@@ -278,8 +278,8 @@ function startDetectionLoop() {
            (in meters relative to QR)
         ---------------------------- */
         const targetPosition = new THREE.Vector3(
-          xWorld - currentQRConfig.posX,
-          yWorld - currentQRConfig.posY,
+          xWorld + currentQRConfig[1],
+          yWorld + currentQRConfig[2],
           -distance
         )
 
@@ -290,16 +290,23 @@ function startDetectionLoop() {
         nepalFlag.mesh.position.lerp(targetPosition, 0.15)
 
         /* ---------------------------
-           6. SCALE FROM JSON
-        ---------------------------- */
-        nepalFlag.mesh.scale.lerp(
-          new THREE.Vector3(
-            currentQRConfig.width,
-            currentQRConfig.height,
-            1
-          ),
-          0.2
-        )
+   6. SCALE FROM JSON (Fix aspect)
+---------------------------- */
+
+// Keep flag natural aspect ratio
+const flagAspect = 1.5 / 0.7   // Same as NepalFlag constructor ratio
+
+const targetWidth = currentQRConfig[3]
+const targetHeight = targetWidth / flagAspect
+
+nepalFlag.mesh.scale.lerp(
+  new THREE.Vector3(
+    targetWidth,
+    targetHeight,
+    1
+  ),
+  0.2
+)
 
         /* ---------------------------
            7. ROTATION (SMOOTH)
@@ -322,7 +329,7 @@ function startDetectionLoop() {
         /* ---------------------------
            8. ANIMATION SWITCHING
         ---------------------------- */
-        if (currentQRConfig.anim === 'nepal_flag') {
+        if (currentQRConfig[0] === 0) {
           nepalFlag.mesh.visible = true
         } else {
           nepalFlag.mesh.visible = false
