@@ -103,6 +103,7 @@ async function detectBarcodeOnce(): Promise<boolean> {
   try {
     currentQRConfig = barcodes[0].rawValue.split(',').map(Number)
     console.log("QR Config:", currentQRConfig)
+    alert("QR Config:")
     return true
   } catch {
     console.warn("Invalid barcode data")
@@ -170,6 +171,7 @@ function onXRFrame(time: number, frame: XRFrame) {
 
   for (const result of results) {
     const pose = frame.getPose?.(result.imageSpace, referenceSpace)
+    alert("pose");
     if (!pose) continue
 
     const { position, orientation } = pose.transform
