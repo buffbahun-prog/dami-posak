@@ -12,11 +12,11 @@ interface XRSessionInitWithTracking extends XRSessionInit {
   trackedImages?: XRTrackedImageInit[]
 }
 
-interface XRImageTrackingResult {
-  index: number
-  imageSpace: XRSpace
-  trackingState: "tracked" | "emulated"
-}
+// interface XRImageTrackingResult {
+//   index: number
+//   imageSpace: XRSpace
+//   trackingState: "tracked" | "emulated"
+// }
 
 interface XRPose {
   transform: {
@@ -25,7 +25,7 @@ interface XRPose {
   }
 }
 
-type XRFrameRequestCallback = (time: number, frame: XRFrame) => void;
+// type XRFrameRequestCallback = (time: number, frame: XRFrame) => void;
 
 interface XRFrame {
   getPose?(
@@ -157,6 +157,7 @@ async function setupWebXR() {
 ===================================== */
 
 function onXRFrame(time: number, frame: XRFrame) {
+  console.log(time);
   const session = renderer.xr.getSession()
   if (!session) return
 
