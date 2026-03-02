@@ -117,12 +117,14 @@ async function detectBarcodeOnce(): Promise<boolean> {
 async function setupWebXR() {
   if (!navigator.xr) {
     console.warn("WebXR not available")
+    alert("WebXR not available")
     return
   }
 
   const supported = await navigator.xr.isSessionSupported('immersive-ar')
   if (!supported) {
     console.warn("WebXR AR not supported on this device")
+    alert("WebXR AR not supported on this device")
     return
   }
 
@@ -174,8 +176,10 @@ function onXRFrame(time: number, frame: XRFrame) {
 
     if (!nepalFlag) continue
 
+    alert("working");
+
     // Visibility control from QR config
-    nepalFlag.mesh.visible = currentQRConfig[0] === 0
+    nepalFlag.mesh.visible = currentQRConfig[0] === 0 || true;
 
     // Position (real world)
     nepalFlag.mesh.position.set(
