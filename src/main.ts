@@ -1,281 +1,102 @@
-import './style.css'
 import * as THREE from 'three'
 import { NepalFlag } from './flagAnimation'
 
-// Extend WebXR types for image tracking
-interface XRTrackedImageInit {
-  image: ImageBitmap
-  widthInMeters: number
-}
+/* ---------------- GLOBAL ---------------- */
+const canvas = document.getElementById("overlay") as HTMLCanvasElement
+const startBtn = document.getElementById("stbtn") as HTMLButtonElement
+const qrImage = document.getElementById("qr") as HTMLImageElement
 
-interface XRSessionInitWithTracking extends XRSessionInit {
-  trackedImages?: XRTrackedImageInit[]
-}
-
-// interface XRImageTrackingResult {
-//   index: number
-//   imageSpace: XRSpace
-//   trackingState: "tracked" | "emulated"
-// }
-
-interface XRPose {
-  transform: {
-    position: DOMPointReadOnly
-    orientation: DOMPointReadOnly
-  }
-}
-
-// type XRFrameRequestCallback = (time: number, frame: XRFrame) => void;
-
-interface XRFrame {
-  getPose?(
-    space: XRSpace,
-    baseSpace: XRSpace
-  ): XRPose | undefined
-
-  getImageTrackingResults?(): {
-    index: number
-    imageSpace: XRSpace
-    trackingState: "tracked" | "emulated"
-  }[]
-}
-
-/* =====================================
-   GLOBAL STATE
-===================================== */
-
-let currentQRConfig: number[] = []
-const REAL_BARCODE_WIDTH = 0.20 // 20cm real printed width
-
-let isStarted = false
-let barcodeDetector: BarcodeDetector | null = null
-
-if ('BarcodeDetector' in globalThis) {
-  barcodeDetector = new BarcodeDetector({ formats: ['code_128'] })
-} else {
-  console.warn('BarcodeDetector not supported.')
-}
-
-const video = document.getElementById('video') as HTMLVideoElement
-const canvas = document.getElementById('overlay') as HTMLCanvasElement
-
-/* =====================================
-   THREE + XR SETUP
-===================================== */
-
-const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true })
-renderer.xr.enabled = true
-renderer.setPixelRatio(window.devicePixelRatio)
-
-const scene = new THREE.Scene()
+let renderer: THREE.WebGLRenderer
+let scene: THREE.Scene
 let camera: THREE.PerspectiveCamera
-let nepalFlag: NepalFlag | null = null
+let flag: NepalFlag
+let xrSession: XRSession | null = null
 
-function setupThree(width: number, height: number) {
-  camera = new THREE.PerspectiveCamera(70, width / height, 0.1, 1000)
+/* ---------------- THREE SETUP ---------------- */
+function setupThree() {
+  renderer = new THREE.WebGLRenderer({canvas, alpha:true, antialias:true})
+  renderer.setSize(window.innerWidth, window.innerHeight)
+  renderer.xr.enabled = true
+
+  scene = new THREE.Scene()
+  camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.01, 10)
   scene.add(camera)
 
-  const dirLight = new THREE.DirectionalLight(0xffffff, 1)
-  dirLight.position.set(1, 1, 1)
-  scene.add(dirLight)
+  scene.add(new THREE.AmbientLight(0xffffff,0.7))
+  const dir = new THREE.DirectionalLight(0xffffff,1)
+  dir.position.set(1,1,1)
+  scene.add(dir)
 
-  scene.add(new THREE.AmbientLight(0xffffff, 0.5))
-
-  const videoTexture = new THREE.VideoTexture(video)
-  videoTexture.colorSpace = THREE.SRGBColorSpace
-  scene.background = videoTexture
-
-  nepalFlag = new NepalFlag('nepal-flag.png', 1, 0.7, 32)
-  nepalFlag.mesh.visible = false
-  scene.add(nepalFlag.mesh)
+  flag = new NepalFlag("nepal-flag.png",1,0.7,32)
+  flag.mesh.visible=false
+  scene.add(flag.mesh)
 }
 
-/* =====================================
-   STEP 1 — Detect Barcode Once
-===================================== */
-
-async function detectBarcodeOnce(): Promise<boolean> {
-  if (!barcodeDetector) return false
-
-  const barcodes = await barcodeDetector.detect(video)
-  if (barcodes.length === 0) return false
-
-  try {
-    currentQRConfig = barcodes[0].rawValue.split(',').map(Number)
-    console.log("QR Config:", currentQRConfig)
-    alert("QR Config:")
-    return true
-  } catch {
-    console.warn("Invalid barcode data")
-    return false
-  }
-}
-
-/* =====================================
-   STEP 2 — Start WebXR Image Tracking
-===================================== */
-
-async function setupWebXR() {
-  if (!navigator.xr) {
-    console.warn("WebXR not available")
-    alert("WebXR not available")
-    return
-  }
-
-  const supported = await navigator.xr.isSessionSupported('immersive-ar')
-  if (!supported) {
-    console.warn("WebXR AR not supported on this device")
-    alert("WebXR AR not supported on this device")
-    return
-  }
-
-  // Load exact barcode image printed on shirt
-  const img = document.createElement("img")
-  img.src = "barcode-image.png"
-  await img.decode()
-
-  const bitmap = await createImageBitmap(img)
-
-  const sessionInit: XRSessionInitWithTracking = {
-    requiredFeatures: ["image-tracking", "dom-overlay"],
-    trackedImages: [
-      {
-        image: bitmap,
-        widthInMeters: REAL_BARCODE_WIDTH
-      }
-    ],
-    domOverlay: { root: document.body }
-  }
-  
-  const session = await navigator.xr.requestSession("immersive-ar", sessionInit)
-
-  renderer.xr.setReferenceSpaceType("local")
-  renderer.xr.setSession(session)
-
-  renderer.setAnimationLoop(onXRFrame)
-}
-
-/* =====================================
-   STEP 3 — XR FRAME LOOP (REAL ANCHOR)
-===================================== */
-
+/* ---------------- XR FRAME LOOP ---------------- */
 function onXRFrame(time: number, frame: XRFrame) {
-  console.log(time);
-  const session = renderer.xr.getSession()
-  if (!session) return
-
-  const referenceSpace = renderer.xr.getReferenceSpace()
+  const session = frame.session
+  const refSpace = renderer.xr.getReferenceSpace()
   const results = frame.getImageTrackingResults?.() || []
 
-  if (!referenceSpace) return
+  for(const result of results){
+    const pose = frame.getPose(result.imageSpace, refSpace as XRSpace)
+    if(!pose) continue
 
-  for (const result of results) {
-    const pose = frame.getPose?.(result.imageSpace, referenceSpace)
-    alert("pose");
-    if (!pose) continue
-
-    const { position, orientation } = pose.transform
-
-    if (!nepalFlag) continue
-
-    alert("working");
-
-    // Visibility control from QR config
-    nepalFlag.mesh.visible = currentQRConfig[0] === 0 || true;
-
-    // Position (real world)
-    nepalFlag.mesh.position.set(
-      position.x + (currentQRConfig[1] || 0),
-      position.y + (currentQRConfig[2] || 0),
-      position.z
+    flag.mesh.visible = true
+    flag.mesh.position.set(
+      pose.transform.position.x,
+      pose.transform.position.y,
+      pose.transform.position.z
+    )
+    flag.mesh.quaternion.set(
+      pose.transform.orientation.x,
+      pose.transform.orientation.y,
+      pose.transform.orientation.z,
+      pose.transform.orientation.w
     )
 
-    // Rotation (real orientation from XR)
-    nepalFlag.mesh.quaternion.set(
-      orientation.x,
-      orientation.y,
-      orientation.z,
-      orientation.w
-    )
+    // Optional scaling based on QR size
+    const width = 0.3 // meters
+    const height = width / 1.5
+    flag.mesh.scale.set(width, height, 1)
 
-    // Scale
-    const flagAspect = 1.5 / 0.7
-    const width = currentQRConfig[3] || 0.15
-    const height = width / flagAspect
-
-    nepalFlag.mesh.scale.set(width, height, 1)
-
-    // Update animation
-    if (nepalFlag.mesh.visible) {
-      nepalFlag.update()
-    }
+    flag.update()
   }
 
-  renderer.render(scene, camera)
+  renderer.render(scene,camera)
+  session.requestAnimationFrame(onXRFrame)
 }
 
-/* =====================================
-   CAMERA START
-===================================== */
-
-async function startStream() {
-  if (isStarted) return
-
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: 'environment' },
-    audio: false
-  })
-
-  video.srcObject = stream
-  video.muted = true
-  video.playsInline = true
-
-  await new Promise<void>(resolve => {
-    if (video.readyState >= 1) resolve()
-    else video.onloadedmetadata = () => resolve()
-  })
-
-  await video.play()
-
-  setupThree(video.videoWidth, video.videoHeight)
-
-  // Detect barcode until successful
-  let detected = false
-  while (!detected) {
-    detected = await detectBarcodeOnce()
-    if (!detected) await new Promise(r => setTimeout(r, 300))
+/* ---------------- START AR ---------------- */
+async function startAR() {
+  if(!navigator.xr){
+    alert("WebXR not supported")
+    return
   }
 
-  // Start WebXR tracking
-  await setupWebXR()
+  const supported = await navigator.xr.isSessionSupported("immersive-ar")
+  if(!supported){
+    alert("WebXR immersive-ar not supported")
+    return
+  }
 
-  isStarted = true
+  await qrImage.decode()
+  const bitmap = await createImageBitmap(qrImage)
+
+  const sessionInit: XRSessionInit = {
+    requiredFeatures:["image-tracking","dom-overlay"],
+    trackedImages:[{image: bitmap, widthInMeters:0.2}],
+    domOverlay:{root:document.body}
+  }
+
+  xrSession = await navigator.xr.requestSession("immersive-ar", sessionInit)
+  renderer.xr.setReferenceSpaceType("local")
+  renderer.xr.setSession(xrSession)
+  xrSession.requestAnimationFrame(onXRFrame)
 }
 
-/* =====================================
-   STOP STREAM
-===================================== */
+/* ---------------- BUTTON ---------------- */
+startBtn.addEventListener("click", startAR)
 
-function stopStream() {
-  const stream = video.srcObject as MediaStream | null
-  stream?.getTracks().forEach(track => track.stop())
-  video.srcObject = null
-
-  const session = renderer.xr.getSession()
-  session?.end()
-
-  renderer.setAnimationLoop(null)
-
-  if (nepalFlag) nepalFlag.mesh.visible = false
-
-  renderer.clear()
-  isStarted = false
-}
-
-/* =====================================
-   BUTTON
-===================================== */
-
-document.getElementById('stbtn')?.addEventListener('click', () => {
-  isStarted ? stopStream() : startStream()
-})
+/* ---------------- INITIALIZE ---------------- */
+setupThree()

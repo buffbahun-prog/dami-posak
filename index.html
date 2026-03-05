@@ -1,47 +1,32 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>dami-posak</title>
-  </head>
-  <body>
-    <div id="app">
-      <video id="video" autoplay muted playsinline></video>
-      <canvas id="overlay"></canvas>
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<style>
+body { margin:0; overflow:hidden; }
+video, canvas {
+ position:absolute;
+ top:0;
+ left:0;
+ width:100%;
+ height:100%;
+ object-fit:cover;
+}
+#stbtn {
+ position:fixed;
+ bottom:20px;
+ left:20px;
+ z-index:10;
+}
+</style>
+</head>
 
-      <div id="rectime"></div>
-      <div class="controls">
-        <a id="downloadButton" class="button">
-          <svg xmlns="http://www.w3.org/2000/svg"
-     width="24"
-     height="24"
-     viewBox="0 0 24 24"
-     fill="none"
-     stroke="currentColor"
-     stroke-width="2"
-     stroke-linecap="round"
-     stroke-linejoin="round">
+<body>
 
-  <!-- Arrow down -->
-  <path d="M12 3v12" />
-  <path d="M7 10l5 5 5-5" />
+<video id="video" autoplay playsinline muted></video>
+<canvas id="overlay"></canvas>
+<button id="stbtn">START</button>
+<script type="module" src="/src/main.ts"></script>
 
-  <!-- Bottom line -->
-  <path d="M5 21h14" />
-</svg>
-        </a>
-        <button id="stbtn">
-          <div></div>
-        </button>
-        <button id="pause">
-          <div></div>
-          <div></div>
-        </button>
-      </div>
-    </div>
-
-    <script type="module" src="/src/main.ts"></script>
-  </body>
+</body>
 </html>
