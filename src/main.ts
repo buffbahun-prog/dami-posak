@@ -33,9 +33,11 @@ function setupThree() {
 }
 
 /* ---------------- XR FRAME LOOP ---------------- */
+// @ts-ignore 
 function onXRFrame(time: number, frame: XRFrame) {
   const session = frame.session
   const refSpace = renderer.xr.getReferenceSpace()
+  // @ts-ignore
   const results = frame.getImageTrackingResults?.() || []
 
   for(const result of results){
@@ -85,6 +87,7 @@ async function startAR() {
 
   const sessionInit: XRSessionInit = {
     requiredFeatures:["image-tracking","dom-overlay"],
+    // @ts-ignore
     trackedImages:[{image: bitmap, widthInMeters:0.2}],
     domOverlay:{root:document.body}
   }
