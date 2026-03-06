@@ -13,6 +13,6 @@ export class Earth extends ARObject {
 
   update(delta: number) {
     // Rotate Earth
-    this.rotateY(delta, 0.2)
+    this.rotateY(delta, 0.3)
   }
 }

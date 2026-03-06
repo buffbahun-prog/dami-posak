@@ -1,18 +1,7 @@
 // main.ts
 import * as THREE from 'three'
-
-// Generic ARAnchor interface for any 3D object
-interface ARAnchorObject {
-  root: THREE.Object3D      // parent container
-  update?: (delta: number) => void // optional animation update per frame
-}
-
-interface ARAnchor {
-  root: THREE.Object3D
-  object: ARAnchorObject
-  prevPos: THREE.Vector3
-  prevQuat: THREE.Quaternion
-}
+import type { ARAnchor, ARAnchorObject } from './types/types'
+import { anchorConfigs } from './configs/anchorConfigs'
 
 const canvas = document.getElementById("overlay") as HTMLCanvasElement
 const startBtn = document.getElementById("stbtn") as HTMLButtonElement
@@ -75,50 +64,72 @@ function onXRFrame(time: number, frame: XRFrame) {
   lastTime = time
 
   // Update each anchor
-  anchors.forEach((anchor, i) => {
-    const result = results[i]
-    if (!result) {
-      anchor.root.visible = false
-      return
-    }
+  // Update visibility first
+anchors.forEach(anchor => {
+  anchor.root.visible = false
+})
 
-    const pose = frame.getPose(result.imageSpace, refSpace as XRSpace)
-    if (!pose) {
-      anchor.root.visible = false
-      return
-    }
+for (const result of results) {
+  // Ignore markers that are not actively tracked
+  if (result.trackingState !== "tracked") continue
 
-    const targetPos = new THREE.Vector3(
-      pose.transform.position.x,
-      pose.transform.position.y,
-      pose.transform.position.z
-    )
-    const targetQuat = new THREE.Quaternion(
-      pose.transform.orientation.x,
-      pose.transform.orientation.y,
-      pose.transform.orientation.z,
-      pose.transform.orientation.w
-    )
+  const anchor = anchors[result.index]
+  if (!anchor) continue
 
-    // Smooth movement
-    anchor.prevPos.lerp(targetPos, smoothing)
-    anchor.prevQuat.slerp(targetQuat, smoothing)
+  const pose = frame.getPose(result.imageSpace, refSpace as XRSpace)
+  if (!pose) continue
 
-    // Deadzone
-    if (targetPos.distanceTo(anchor.prevPos) < threshold) {
-      anchor.prevPos.copy(anchor.prevPos)
-    }
+  const targetPos = new THREE.Vector3(
+    pose.transform.position.x,
+    pose.transform.position.y,
+    pose.transform.position.z
+  )
 
-    anchor.root.visible = true
-    anchor.root.position.copy(anchor.prevPos)
-    anchor.root.quaternion.copy(anchor.prevQuat)
+  const targetQuat = new THREE.Quaternion(
+    pose.transform.orientation.x,
+    pose.transform.orientation.y,
+    pose.transform.orientation.z,
+    pose.transform.orientation.w
+  )
 
-    // Optional scale, fixed per object
-    anchor.root.scale.set(0.3, 0.3, 0.3)
+  // Smooth movement
+  anchor.prevPos.lerp(targetPos, smoothing)
+  anchor.prevQuat.slerp(targetQuat, smoothing)
 
-    // Let object handle its own animation
-    anchor.object.update?.(delta)
-  })
+  // Deadzone
+  if (targetPos.distanceTo(anchor.prevPos) < threshold) {
+    anchor.prevPos.copy(anchor.prevPos)
+  }
+
+  // Apply T-shirt offset
+      const config = anchorConfigs[result.index]
+      console.log(config, result.index);
+      if (config.position) {
+        anchor.root.position.set(
+          anchor.prevPos.x + config.position.x,
+          anchor.prevPos.y + config.position.y,
+          anchor.prevPos.z + (config.position.z ?? 0)
+        )
+      } else {
+        anchor.root.position.copy(anchor.prevPos)
+      }
+
+
+  anchor.root.visible = true
+  // anchor.root.position.copy(anchor.prevPos)
+  anchor.root.quaternion.copy(anchor.prevQuat)
+
+   // Apply custom scale
+      if (config.scale) {
+        anchor.root.scale.set(config.scale.x, config.scale.y, config.scale.z ?? 1)
+      } else {
+        // Optional fixed scale
+  anchor.root.scale.set(0.3, 0.3, 0.3)
+      }
+
+  // Let object animate itself
+  anchor.object.update?.(delta)
+}
 
   renderer.render(scene, camera)
   session.requestAnimationFrame(onXRFrame)
@@ -129,21 +140,36 @@ async function startAR() {
   if (!navigator.xr) return alert("WebXR not supported")
   if (!(await navigator.xr.isSessionSupported("immersive-ar"))) return alert("AR not supported")
 
-  const markerFiles = ["my-qr.png"] // add multiple anchors if needed
-  const bitmaps: ImageBitmap[] = []
+  const trackedImages = []
+  anchors.length = 0
 
-  for (const file of markerFiles) {
-    const img = document.createElement("img")
-    img.src = file
-    await img.decode()
-    bitmaps.push(await createImageBitmap(img))
-    img.remove()
-  }
+for (const config of anchorConfigs) {
+  const img = document.createElement("img")
+  img.src = config.image
+  await img.decode()
 
-  const trackedImages = bitmaps.map(bitmap => ({
+  const bitmap = await createImageBitmap(img)
+
+  trackedImages.push({
     image: bitmap,
-    widthInMeters: 0.2
-  }))
+    widthInMeters: config.widthInMeters
+  })
+
+  const object = config.createObject()
+  const anchor = createAnchor(object)
+
+// Apply custom scale and position
+if (config.scale) {
+  anchor.root.scale.set(config.scale.x, config.scale.y, config.scale.z ?? 1)
+}
+
+if (config.position) {
+  anchor.root.position.set(config.position.x, config.position.y, config.position.z ?? 0)
+}
+  anchors.push(createAnchor(object))
+
+  img.remove()
+}
 
   const sessionInit: XRSessionInit = {
     requiredFeatures: ["image-tracking", "dom-overlay"],
@@ -160,10 +186,5 @@ async function startAR() {
 
 /* ---------------- INITIALIZE ---------------- */
 setupThree()
-
-// Example: Earth object
-import { Earth } from './Earth'
-const earth = new Earth('earth-texture.jpg', 0.5)
-anchors.push(createAnchor(earth))
 
 startBtn.addEventListener("click", startAR)
