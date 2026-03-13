@@ -3,7 +3,8 @@ import * as THREE from 'three'
 // Generic ARAnchor interface for any 3D object
 export interface ARAnchorObject {
   root: THREE.Object3D      // parent container
-  update?: (delta: number) => void // optional animation update per frame
+  update?: (delta: number, orintation?: {alpha: number; beta: number; gamma: number}) => void // optional animation update per frame
+  getMesh: () => THREE.Mesh
 }
 
 export interface ARAnchor {

@@ -4,13 +4,26 @@ import type { ARAnchor, ARAnchorObject } from './types/types'
 import { anchorConfigs } from './configs/anchorConfigs'
 
 const canvas = document.getElementById("overlay") as HTMLCanvasElement
-const startBtn = document.getElementById("stbtn") as HTMLButtonElement
+const recordBtn = document.getElementById("stbtn") as HTMLButtonElement
+const recordTime = document.getElementById("rcdtime") as HTMLDivElement
+// const video = document.getElementById("video") as HTMLVideoElement
 
 let renderer: THREE.WebGLRenderer
 let scene: THREE.Scene
 let camera: THREE.PerspectiveCamera
 let xrSession: XRSession | null = null
+let xrSessionAnimationId: number | null = null;
 const anchors: ARAnchor[] = []
+let planet: THREE.Object3D | null = null;
+let mediaRecorder: MediaRecorder | null = null;
+let chunks: Blob[] = []
+let totalRecordSeconds = 0;
+let recordTimeIntervalId: number | null = null;
+let orintation: {
+  alpha: number;
+  beta: number;
+  gamma: number;
+} | null = null;
 
 /* ---------------- THREE SETUP ---------------- */
 function setupThree() {
@@ -103,7 +116,6 @@ for (const result of results) {
 
   // Apply T-shirt offset
       const config = anchorConfigs[result.index]
-      console.log(config, result.index);
       if (config.position) {
         anchor.root.position.set(
           anchor.prevPos.x + config.position.x,
@@ -128,11 +140,11 @@ for (const result of results) {
       }
 
   // Let object animate itself
-  anchor.object.update?.(delta)
+  anchor.object.update?.(delta, orintation ?? undefined)
 }
 
   renderer.render(scene, camera)
-  session.requestAnimationFrame(onXRFrame)
+  xrSessionAnimationId = session.requestAnimationFrame(onXRFrame)
 }
 
 /* ---------------- START AR ---------------- */
@@ -157,6 +169,7 @@ for (const config of anchorConfigs) {
 
   const object = config.createObject()
   const anchor = createAnchor(object)
+  planet = anchor.object.getMesh()
 
 // Apply custom scale and position
 if (config.scale) {
@@ -166,7 +179,7 @@ if (config.scale) {
 if (config.position) {
   anchor.root.position.set(config.position.x, config.position.y, config.position.z ?? 0)
 }
-  anchors.push(createAnchor(object))
+  anchors.push(anchor)
 
   img.remove()
 }
@@ -179,12 +192,193 @@ if (config.position) {
   }
 
   xrSession = await navigator.xr.requestSession("immersive-ar", sessionInit)
+  xrSession.addEventListener("end", () => {
+    cleanupAR()
+  })
+  onSessionStart();
   renderer.xr.setReferenceSpaceType("local")
   renderer.xr.setSession(xrSession)
-  xrSession.requestAnimationFrame(onXRFrame)
+  xrSessionAnimationId = xrSession.requestAnimationFrame(onXRFrame)
+}
+
+/* ---------------- Record ---------------- */
+
+async function initRecording() {
+  try {
+    const canvas = renderer.domElement;
+    // const stream = renderer.domElement.captureStream(30);
+
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      video: {
+        frameRate: 60,
+        displaySurface: "browser"
+      },
+      // @ts-ignore
+      preferCurrentTab: true,
+      audio: false
+    })
+
+    const [track] = stream.getVideoTracks()
+
+  /* restrict capture to canvas only */
+
+  // @ts-ignore
+  const target = await RestrictionTarget.fromElement(canvas)
+
+  await (track as any).restrictTo(target)
+
+    mediaRecorder = new MediaRecorder(stream, {
+      mimeType: "video/webm;codecs=vp8"
+    })
+
+    chunks = []
+    
+    mediaRecorder.addEventListener("start", () => {
+      recordBtn.classList.add("recording")
+      chunks = []
+      totalRecordSeconds = 0;
+      recordTimeIntervalId = startTimer()
+    })
+
+    mediaRecorder.addEventListener("dataavailable", (e) => {
+      if (e.data.size > 0) {
+        chunks.push(e.data)
+      }
+    })
+
+    mediaRecorder.addEventListener("stop", () => {
+      recordBtn.classList.remove("recording");
+      recordTime.classList.remove("show");
+      if (recordTimeIntervalId) clearInterval(recordTimeIntervalId);
+
+      const blob = new Blob(chunks, { type: "video/webm" })
+      const url = URL.createObjectURL(blob)
+
+      const a = document.createElement("a")
+      a.href = url
+      a.download = "ar-recording.webm"
+      a.click()
+
+      URL.revokeObjectURL(url)
+    })
+
+  } catch (err) {
+    console.error(err)
+    alert("Screen recording permission denied")
+  }
+}
+
+// @ts-ignore
+function startStopRecording() {
+  if (!mediaRecorder) {
+    initRecording()
+  }
+
+  if (!mediaRecorder) return
+
+  if (mediaRecorder.state === "recording") {
+    mediaRecorder.stop();
+  } else if (mediaRecorder.state === "inactive") {
+    mediaRecorder.start();
+  }
 }
 
 /* ---------------- INITIALIZE ---------------- */
 setupThree()
 
-startBtn.addEventListener("click", startAR)
+recordBtn.addEventListener("click", async () => {
+
+  if (xrSessionAnimationId === null) {
+    await startAR()
+    await enableGyro()
+    return
+  }
+
+  await xrSession?.end()
+
+  if (xrSessionAnimationId) {
+    cancelAnimationFrame(xrSessionAnimationId)
+    xrSessionAnimationId = null
+  }
+
+  recordBtn.classList.remove("recording")
+  recordTime.classList.remove("show")
+
+  if (recordTimeIntervalId) {
+    clearInterval(recordTimeIntervalId)
+    recordTimeIntervalId = null
+  }
+
+  cleanupAR()
+})
+
+/* ----------------- HELPERS ----------------------*/
+
+function startTimer(): number {
+  recordTime.classList.add("show")
+  recordTime.innerHTML = '';
+
+  return setInterval(() => {
+    totalRecordSeconds++
+    const hours = Math.floor(totalRecordSeconds / 3600)
+    const minutes = Math.floor((totalRecordSeconds % 3600) / 60)
+    const seconds = totalRecordSeconds % 60
+    if (recordTime) {
+      recordTime.textContent = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+    }
+  }, 1000)
+}
+
+function cleanupAR() {
+
+  // remove anchor objects from scene
+  anchors.forEach(anchor => {
+    scene.remove(anchor.root)
+  })
+
+  anchors.length = 0
+
+  // reset renderer state
+  renderer.setRenderTarget(null)
+  renderer.clear(true, true, true)
+
+  // reset camera transform
+  camera.position.set(0, 0, 0)
+  camera.quaternion.identity()
+
+  lastTime = null
+}
+
+function onSessionStart() {
+  recordBtn.classList.add("recording")
+  totalRecordSeconds = 0;
+  recordTimeIntervalId = startTimer()
+}
+
+async function enableGyro() {
+  if (
+    typeof DeviceOrientationEvent !== "undefined" &&
+    // @ts-ignore
+    typeof DeviceOrientationEvent.requestPermission === "function"
+  ) {
+    // @ts-ignore
+    const permission = await DeviceOrientationEvent.requestPermission()
+    if (permission !== "granted") {
+      alert("Gyroscope permission denied")
+      return
+    }
+  }
+
+  window.addEventListener("deviceorientation", handleOrientation)
+}
+
+function handleOrientation(event: DeviceOrientationEvent) {
+
+  if (!planet) orintation = null;
+
+  const alpha = event.alpha || 0 // Z
+  const beta  = event.beta  || 0 // X
+  const gamma = event.gamma || 0 // Y
+
+  orintation = {alpha, beta, gamma}
+}

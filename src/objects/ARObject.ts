@@ -50,4 +50,8 @@ export class ARObject {
   setShadowOpacity(opacity: number) {
     (this.shadowPlane.material as THREE.MeshBasicMaterial).opacity = opacity
   }
+
+  getMesh() {
+    return this.mainMesh
+  }
 }
