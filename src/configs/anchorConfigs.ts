@@ -7,8 +7,8 @@ export const anchorConfigs: AnchorConfig[] = [
     uuid: "earth",
     image: "earth-qr.png",
     widthInMeters: 0.045,
-    position: { x: -0.15, y: -0.3, z: -0.3 },   // e.g., slightly above pocket
-    scale: { x: 0.15, y: 0.15, z: 0.15 },   // desired size on T-shirt
+    position: { x: -0.1, y: -0.3, z: -0.3 },   // e.g., slightly above pocket
+    scale: { x: 0.2, y: 0.2, z: 0.2 },   // desired size on T-shirt
     createObject: () => new Earth("earth-texture.jpg", 0.5)
   },
   {
