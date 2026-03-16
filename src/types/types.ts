@@ -4,7 +4,7 @@ import * as THREE from 'three'
 export interface ARAnchorObject {
   root: THREE.Object3D      // parent container
   update?: (delta: number, orintation?: {alpha: number; beta: number; gamma: number}) => void // optional animation update per frame
-  getMesh: () => THREE.Mesh
+  getMesh: () => THREE.Object3D
 }
 
 export interface ARAnchor {

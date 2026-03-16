@@ -1,57 +1,75 @@
-import * as THREE from 'three'
+import * as THREE from "three"
 
 export class ARObject {
-  public root: THREE.Object3D        // container, used by AR manager
-  protected mainMesh: THREE.Mesh     // actual 3D mesh
-  protected shadowPlane: THREE.Mesh  // optional shadow
 
-  constructor(mesh: THREE.Mesh, shadowRadius = 0.5) {
+  public root: THREE.Object3D
+  protected mainObject: THREE.Object3D
+  protected shadowPlane?: THREE.Mesh
+
+  constructor(object: THREE.Object3D, shadowRadius?: number) {
+
     this.root = new THREE.Object3D()
-    this.mainMesh = mesh
-    this.root.add(this.mainMesh)
 
-    // ---------------- Shadow ----------------
-    const shadowGeo = new THREE.CircleGeometry(shadowRadius, 32)
-    const shadowMat = new THREE.MeshBasicMaterial({
-      color: 0x000000,
-      transparent: true,
-      opacity: 0.3,
-    })
-    this.shadowPlane = new THREE.Mesh(shadowGeo, shadowMat)
-    this.shadowPlane.rotation.x = -Math.PI / 2
-    this.shadowPlane.position.y = -shadowRadius + 0.01
-    this.root.add(this.shadowPlane)
+    this.mainObject = object
+    this.root.add(object)
+
+    /* ---------- Optional Shadow ---------- */
+
+    if (shadowRadius !== undefined) {
+
+      const shadowGeo = new THREE.CircleGeometry(shadowRadius, 32)
+
+      const shadowMat = new THREE.MeshBasicMaterial({
+        color: 0x000000,
+        transparent: true,
+        opacity: 0.3
+      })
+
+      const shadow = new THREE.Mesh(shadowGeo, shadowMat)
+
+      shadow.rotation.x = -Math.PI / 2
+      shadow.position.y = -shadowRadius + 0.01
+
+      this.shadowPlane = shadow
+
+      this.root.add(shadow)
+    }
   }
 
-  // ---------------- Rotation / Animation ----------------
-  // Called each frame from AR loop
-  // @ts-ignore
-  update(delta: number) {
-    // Override in subclasses
-  }
+  /* ---------- Update Loop ---------- */
+
+  update(_delta: number) {}
+
+  /* ---------- Rotation Helpers ---------- */
 
   rotateX(delta: number, speed = 0.2) {
-    this.mainMesh.rotation.x += delta * speed
+    this.mainObject.rotation.x += delta * speed
   }
 
   rotateY(delta: number, speed = 0.2) {
-    this.mainMesh.rotation.y += delta * speed
+    this.mainObject.rotation.y += delta * speed
   }
 
   rotateZ(delta: number, speed = 0.2) {
-    this.mainMesh.rotation.z += delta * speed
+    this.mainObject.rotation.z += delta * speed
   }
 
-  // ---------------- Shadow Helpers ----------------
+  /* ---------- Shadow Controls ---------- */
+
   setShadowScale(scale: number) {
+    if (!this.shadowPlane) return
     this.shadowPlane.scale.set(scale, scale, 1)
   }
 
   setShadowOpacity(opacity: number) {
-    (this.shadowPlane.material as THREE.MeshBasicMaterial).opacity = opacity
+    if (!this.shadowPlane) return
+    ;(this.shadowPlane.material as THREE.MeshBasicMaterial).opacity = opacity
   }
 
+  /* ---------- Accessors ---------- */
+
   getMesh() {
-    return this.mainMesh
+    return this.mainObject
   }
+
 }
