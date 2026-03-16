@@ -37,8 +37,8 @@ private spinVelocityZ = 0
 
   const spinSpeed = 1.2
 
-  this.mainMesh.rotation.x += delta * spinSpeed * this.spinVelocityX
-  this.mainMesh.rotation.y += delta * spinSpeed * this.spinVelocityY
-  this.mainMesh.rotation.z += delta * spinSpeed * this.spinVelocityZ
+  this.mainObject.rotation.x += delta * spinSpeed * this.spinVelocityX
+  this.mainObject.rotation.y += delta * spinSpeed * this.spinVelocityY
+  this.mainObject.rotation.z += delta * spinSpeed * this.spinVelocityZ
 }
 }
