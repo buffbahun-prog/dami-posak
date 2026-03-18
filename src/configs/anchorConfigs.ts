@@ -1,4 +1,5 @@
 import { Earth } from "../objects/Earth";
+import { Logo } from "../objects/Logo";
 import { Mars } from "../objects/Mars";
 import { SolarSystem } from "../objects/SolarSystem";
 import type { AnchorConfig } from "../types/types";
@@ -27,5 +28,13 @@ export const anchorConfigs: AnchorConfig[] = [
     position: { x: 0, y: -0.35, z: -0.35 },
     scale: { x: 0.4, y: 0.4, z: 0.4 },
     createObject: () => new SolarSystem()
-  }
+  },
+  {
+    uuid: "logo",
+    image: "logo-qr.png",
+    widthInMeters: 0.12,
+    position: { x: 0, y: 0, z: 0 },
+    scale: { x: 0.1, y: 0.1, z: 0.1 },
+    createObject: () => new Logo(0.3)
+  },
 ]
